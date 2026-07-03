@@ -1,0 +1,6 @@
+node_modules/
+auth_info/
+logs.json
+.env
+*.db
+*.db-journal

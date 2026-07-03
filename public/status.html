@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Status Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/moment.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/1.2.1/chartjs-plugin-zoom.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #10B981;
+      --primary-hover: #059669;
+      --bg-color: #0f172a;
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --card-header: rgba(15, 23, 42, 0.6);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: rgba(255, 255, 255, 0.1);
+      --online-color: #10B981;
+      --offline-color: #ef4444;
+      --duration-color: #cbd5e1;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      background-attachment: fixed;
+      color: var(--text-main);
+      min-height: 100vh;
+    }
+
+    .header {
+      background: rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 0;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    }
+    .header-content {
+      max-width: 700px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 20px;
+    }
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      background: linear-gradient(to right, #10B981, #3b82f6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .nav-links {
+      list-style: none;
+      display: flex;
+      gap: 8px;
+    }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 13px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      transition: all 0.2s;
+    }
+    .nav-links a:hover {
+      background: rgba(255,255,255,0.05);
+      color: var(--text-main);
+    }
+
+    .container {
+      max-width: 700px;
+      margin: 20px auto;
+      padding: 0 16px;
+    }
+
+    .search-bar {
+      margin-bottom: 20px;
+    }
+    #search-input {
+      width: 100%;
+      padding: 12px 20px;
+      font-size: 14px;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      border-radius: 25px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      transition: all 0.2s;
+    }
+    #search-input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+    }
+    #search-input::placeholder { color: var(--text-muted); }
+
+    /* Contact Card */
+    .chart-container {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+      margin-bottom: 16px;
+      overflow: hidden;
+      transition: box-shadow 0.2s;
+    }
+    .chart-container:hover {
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.25);
+    }
+
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      cursor: pointer;
+      background: var(--card-header);
+      transition: background 0.2s;
+      border-bottom: 1px solid var(--border);
+    }
+    .chart-header.online {
+      background: rgba(16, 185, 129, 0.15);
+      border-bottom: 1px solid rgba(16, 185, 129, 0.2);
+    }
+    .chart-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .chart-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+    .chart-username {
+      display: none;
+    }
+
+    .status-indicator {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .status-online {
+      background: rgba(16, 185, 129, 0.2);
+      color: var(--online-color);
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+    }
+    .status-offline {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--offline-color);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .rename-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      padding: 2px 4px;
+      opacity: 0.5;
+      transition: opacity 0.2s;
+      color: var(--text-main);
+    }
+    .rename-btn:hover { opacity: 1; }
+    .delete-btn {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--offline-color);
+      border: none;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: bold;
+      transition: all 0.2s;
+    }
+    .delete-btn:hover {
+      background: var(--offline-color);
+      color: white;
+    }
+
+    /* Profile Header */
+    .profile-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 20px;
+      background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid var(--border);
+    }
+    .profile-info {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .profile-avatar {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: rgba(16, 185, 129, 0.2);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--online-color);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      flex-shrink: 0;
+    }
+    .profile-details {
+      display: flex;
+      flex-direction: column;
+    }
+    .profile-name {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .profile-phone {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 3px;
+    }
+    .profile-lastseen {
+      text-align: right;
+    }
+    .profile-lastseen-label {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .profile-lastseen-value {
+      font-size: 14px;
+      color: var(--primary);
+      font-weight: 600;
+      margin-top: 3px;
+    }
+
+    /* Log Area */
+    .activity-log {
+      padding: 0 16px 16px 16px;
+      max-height: 400px;
+      overflow-y: auto;
+      background: rgba(15, 23, 42, 0.3);
+    }
+    .activity-log::-webkit-scrollbar { width: 4px; }
+    .activity-log::-webkit-scrollbar-track { background: transparent; }
+    .activity-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+
+    /* Column Headers */
+    .log-header-titles {
+      display: flex;
+      justify-content: space-between;
+      padding: 14px 16px 10px 16px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .log-col-title {
+      flex: 1;
+      text-align: center;
+      color: var(--text-muted);
+    }
+    .log-col-title:first-child { text-align: left; color: var(--online-color); }
+    .log-col-title:last-child { text-align: right; color: var(--offline-color); }
+
+    /* Session Cards */
+    .log-cards-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .log-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 10px;
+      padding: 14px 16px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      border-left: 4px solid var(--online-color);
+      border-right: 4px solid transparent;
+      transition: background 0.2s;
+    }
+    .log-card:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .log-col {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+    .log-left { align-items: flex-start; }
+    .log-center { align-items: center; }
+    .log-right { align-items: flex-end; }
+
+    .log-time {
+      font-size: 16px;
+      font-weight: 700;
+      font-family: 'Roboto Mono', monospace;
+    }
+    .log-date {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+    .log-duration {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--duration-color);
+      font-family: 'Roboto Mono', monospace;
+    }
+
+    /* Expandable Content */
+    .chart-content {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .chart-content.active {
+      max-height: 2000px;
+      border-top: 1px solid var(--border);
+    }
+
+    .chart-container canvas {
+      padding: 16px;
+      width: calc(100% - 32px) !important;
+      height: 220px !important;
+      background: rgba(15, 23, 42, 0.2);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 30px 20px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 768px) {
+      .header-content {
+        flex-direction: column;
+        gap: 10px;
+      }
+      .chart-header {
+        padding: 14px 16px;
+      }
+      .profile-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .profile-lastseen {
+        text-align: left;
+      }
+      .log-time {
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+<header class="header">
+  <div class="header-content">
+    <h1><span class="wa-icon">📱</span> WA Status Tracker</h1>
+    <nav>
+      <ul class="nav-links">
+        <li><a href="/select">Select Contacts</a></li>
+        <li><a href="/status">View Status</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<div class="container">
+  <div class="search-bar">
+    <input type="text" id="search-input" placeholder="🔍 Search contacts...">
+  </div>
+  <div id="charts-container">
+  </div>
+</div>
+<script>
+  const charts = {};
+
+  function toggleChart(jid) {
+    const content = document.getElementById(`chart-content-${jid}`);
+    if (content) {
+      content.classList.toggle('active');
+      if (content.classList.contains('active') && !charts[jid]) {
+        createChart(jid);
+      }
+    }
+  }
+
+  function removeContact(event, jid) {
+    event.stopPropagation();
+    if(confirm("Hapus kontak ini dari daftar pantauan?")) {
+      fetch('/api/remove-contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'jid=' + encodeURIComponent(jid)
+      }).then(() => {
+        const el = document.getElementById(jid);
+        if (el) el.remove();
+        delete charts[jid];
+      }).catch(err => console.error("Gagal menghapus:", err));
+    }
+  }
+
+  function createChart(jid) {
+    const ctx = document.getElementById(`chart-${jid}`).getContext('2d');
+    const data = new Array(1440).fill(0);
+    const chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: generateLabels(),
+        datasets: [{
+          label: 'Online Duration (seconds)',
+          data: data,
+          backgroundColor: 'rgba(16, 185, 129, 0.6)',
+          borderColor: 'rgba(16, 185, 129, 1)',
+          borderWidth: 1,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            ticks: {
+              autoSkip: true,
+              maxTicksLimit: 24,
+              color: '#94a3b8',
+              callback: function(value, index) {
+                return index % 60 === 0 ? this.getLabelForValue(value) : '';
+              }
+            },
+            grid: { color: 'rgba(255,255,255,0.05)' }
+          },
+          y: {
+            beginAtZero: true,
+            max: 60,
+            ticks: { stepSize: 10, color: '#94a3b8' },
+            grid: { color: 'rgba(255,255,255,0.05)' }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            titleColor: '#f8fafc',
+            bodyColor: '#10B981',
+            borderColor: 'rgba(255,255,255,0.1)',
+            borderWidth: 1,
+            callbacks: {
+              label: function(context) {
+                return context.raw > 0 ? `Online for ${context.raw} seconds` : 'Offline';
+              }
+            }
+          },
+          zoom: {
+            zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+            pan: { enabled: true, mode: 'x' }
+          }
+        }
+      }
+    });
+    charts[jid] = chart;
+  }
+
+  function generateLabels() {
+    const labels = [];
+    for (let i = 0; i < 24; i++) {
+      for (let j = 0; j < 60; j++) {
+        labels.push(`${i.toString().padStart(2, '0')}:${j.toString().padStart(2, '0')}`);
+      }
+    }
+    return labels;
+  }
+
+  function updateChart(jid, onlineRanges, isOnline) {
+    if (!charts[jid]) return;
+    const data = new Array(1440).fill(0);
+    const currentDay = moment().startOf('day');
+    
+    let totalSeconds = 0;
+    let firstOpen = null;
+    let lastOpen = null;
+
+    if (onlineRanges && onlineRanges.length > 0) {
+      onlineRanges.forEach(range => {
+        if (range && range.start && range.end) {
+          let start = moment(range.start);
+          const end = moment(range.end);
+          if (!firstOpen || start.isBefore(firstOpen)) firstOpen = start;
+          if (!lastOpen || end.isAfter(lastOpen)) lastOpen = end;
+          totalSeconds += end.diff(start, 'seconds');
+
+          while (start.isBefore(end) && start.isBefore(moment(currentDay).add(1, 'day'))) {
+            if (start.isSameOrAfter(currentDay)) {
+              const dataIndex = start.diff(currentDay, 'minutes');
+              if (dataIndex >= 0 && dataIndex < 1440) data[dataIndex]++;
+            }
+            start.add(1, 'second');
+          }
+        }
+      });
+    }
+
+    // Update profile header
+    const summaryElement = document.getElementById(`summary-${jid}`);
+    if (summaryElement) {
+      let phoneNum = jid.split('@')[0];
+      if (phoneNum.startsWith('62')) {
+        phoneNum = '+62 ' + phoneNum.substring(2, 5) + '-' + phoneNum.substring(5, 8) + '-' + phoneNum.substring(8);
+      }
+      
+      let lastSeenText = '';
+      if (isOnline) {
+        lastSeenText = 'Online';
+      } else if (lastOpen) {
+        if (lastOpen.isSame(moment(), 'day')) {
+          lastSeenText = 'Today at ' + lastOpen.format('HH:mm');
+        } else {
+          lastSeenText = lastOpen.format('DD/MM/YYYY') + ' at ' + lastOpen.format('HH:mm');
+        }
+      } else {
+        lastSeenText = '-';
+      }
+
+      const escJid = CSS.escape(jid);
+      const titleEl = document.querySelector(`#${escJid} .chart-title`);
+      const displayName = titleEl ? titleEl.textContent.trim() : phoneNum;
+      const initial = displayName.charAt(0).toUpperCase();
+
+      summaryElement.innerHTML = `
+        <div class="profile-header">
+          <div class="profile-info">
+            <div class="profile-avatar">${initial}</div>
+            <div class="profile-details">
+              <span class="profile-name">${displayName}</span>
+              <span class="profile-phone">${phoneNum}</span>
+            </div>
+          </div>
+          <div class="profile-lastseen">
+            <div class="profile-lastseen-label">Last Seen</div>
+            <div class="profile-lastseen-value">${lastSeenText}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    charts[jid].data.datasets[0].data = data;
+    charts[jid].update();
+    updateStatusIndicator(jid, isOnline);
+  }
+
+  function updateStatusIndicator(jid, isOnline) {
+    const statusElement = document.getElementById(`status-${jid}`);
+    if (!statusElement) return;
+    const headerElement = statusElement.closest('.chart-header');
+    statusElement.textContent = isOnline ? "Online" : "Offline";
+    statusElement.className = `status-indicator ${isOnline ? "status-online" : "status-offline"}`;
+    if (headerElement) headerElement.classList.toggle('online', isOnline);
+  }
+
+  function updateChartTitles(updates) {
+    updates.forEach(update => {
+      if (update && update.jid) {
+        const container = document.getElementById(`${update.jid}`);
+        if (container) {
+          const titleElement = container.querySelector('.chart-title');
+          if (titleElement && update.username) {
+            titleElement.textContent = update.username;
+          }
+        }
+      }
+    });
+  }
+
+  function updateActivityLog(jid, logs) {
+    const logEl = document.getElementById(`log-${jid}`);
+    if (!logEl) return;
+    if (!logs || logs.length === 0) {
+      logEl.innerHTML = `<div class="empty-state">Belum ada sesi terekam.</div>`;
+      return;
+    }
+
+    const sessions = [];
+    let onlineTime = null;
+    for (let i = 0; i < logs.length; i++) {
+      const st = logs[i].Status || logs[i].status;
+      const ts = logs[i].Timestamp || logs[i].time;
+      if (st === 'Online') {
+        onlineTime = moment(ts);
+      } else if (st === 'Offline' && onlineTime) {
+        sessions.push({ online: onlineTime, offline: moment(ts) });
+        onlineTime = null;
+      }
+    }
+    if (onlineTime) {
+      sessions.push({ online: onlineTime, offline: null });
+    }
+
+    sessions.reverse();
+
+    let html = `
+      <div class="log-header-titles">
+        <div class="log-col-title">Online</div>
+        <div class="log-col-title">Duration</div>
+        <div class="log-col-title">Offline</div>
+      </div>
+      <div class="log-cards-container">
+    `;
+
+    sessions.forEach(s => {
+      let durText = '-';
+      let offTimeText = 'Masih Online';
+      let offDateText = '';
+      let rightBorder = 'transparent';
+      let rightColor = 'var(--online-color)';
+      
+      if (s.offline) {
+        const dur = s.offline.diff(s.online, 'seconds');
+        const h = Math.floor(dur / 3600);
+        const m = Math.floor((dur % 3600) / 60);
+        const sec = dur % 60;
+        durText = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
+        offTimeText = s.offline.format('HH:mm:ss');
+        offDateText = s.offline.format('DD/MM/YYYY');
+        rightBorder = 'var(--offline-color)';
+        rightColor = 'var(--offline-color)';
+      }
+
+      html += `
+        <div class="log-card" style="border-right-color: ${rightBorder};">
+          <div class="log-col log-left">
+            <div class="log-time" style="color: var(--online-color);">${s.online.format('HH:mm:ss')}</div>
+            <div class="log-date">${s.online.format('DD/MM/YYYY')}</div>
+          </div>
+          <div class="log-col log-center">
+            <div class="log-duration">${durText}</div>
+          </div>
+          <div class="log-col log-right">
+            <div class="log-time" style="color: ${rightColor};">${offTimeText}</div>
+            <div class="log-date">${offDateText}</div>
+          </div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+    logEl.innerHTML = html;
+  }
+
+  function createContactCard(jid, username, isOnline) {
+    const container = document.getElementById('charts-container');
+    if (!container) return;
+    const displayName = username || jid;
+    const statusText = isOnline ? 'Online' : 'Offline';
+    const statusClass = isOnline ? 'status-online' : 'status-offline';
+    const headerClass = isOnline ? 'online' : '';
+    const card = document.createElement('div');
+    card.className = 'chart-container';
+    card.id = jid;
+    card.innerHTML = `
+      <div class="chart-header ${headerClass}" onclick="toggleChart('${jid}')">
+        <div class="chart-header-left">
+          <span class="chart-title">${displayName}</span>
+          <span class="chart-username"></span>
+          <button class="rename-btn" onclick="event.stopPropagation(); renameContact('${jid}', '${displayName}')" title="Ubah Nama">✏️</button>
+        </div>
+        <div class="header-actions">
+          <span id="status-${jid}" class="status-indicator ${statusClass}">${statusText}</span>
+          <button class="delete-btn" onclick="removeContact(event, '${jid}')" title="Hapus">✕</button>
+        </div>
+      </div>
+      <div id="chart-content-${jid}" class="chart-content">
+        <div id="summary-${jid}"></div>
+        <div id="log-${jid}" class="activity-log"></div>
+        <canvas id="chart-${jid}"></canvas>
+      </div>
+    `;
+    container.appendChild(card);
+  }
+
+  function renameContact(jid, oldName) {
+    const newName = prompt("Ubah nama tampilan untuk ID ini:", oldName);
+    if (newName && newName.trim() !== '' && newName !== oldName) {
+      fetch('/api/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `jid=${encodeURIComponent(jid)}&name=${encodeURIComponent(newName)}`
+      }).then(() => {
+        fetchUpdates();
+      });
+    }
+  }
+
+  function fetchUpdates() {
+    fetch('/api/contacts/tracked')
+      .then(response => response.json())
+      .then(updates => {
+        updateChartTitles(updates);
+        updates.forEach(update => {
+          if (update && update.jid) {
+            let container = document.getElementById(`${update.jid}`);
+            if (!container) {
+              createContactCard(update.jid, update.username, update.isOnline);
+            }
+            const content = document.getElementById(`chart-content-${update.jid}`);
+            updateStatusIndicator(update.jid, update.isOnline);
+            if (content && content.classList.contains('active')) {
+              if (!charts[update.jid]) {
+                createChart(update.jid);
+              }
+              updateChart(update.jid, update.onlineRanges, update.isOnline);
+              updateActivityLog(update.jid, update.logs);
+            }
+          }
+        });
+      })
+      .catch(error => console.error('Error fetching updates:', error));
+  }
+
+  function setupSearch() {
+    const searchInput = document.getElementById('search-input');
+    const chartsContainer = document.getElementById('charts-container');
+    searchInput.addEventListener('input', () => {
+      const searchTerm = searchInput.value.toLowerCase();
+      const chartContainers = chartsContainer.getElementsByClassName('chart-container');
+      Array.from(chartContainers).forEach(container => {
+        const title = container.querySelector('.chart-title').textContent.toLowerCase();
+        container.style.display = title.includes(searchTerm) ? '' : 'none';
+      });
+    });
+  }
+
+  
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
+  
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === 'presence') {
+      let container = document.getElementById(data.jid);
+      if (!container) {
+        createContactCard(data.jid, data.username, data.isOnline);
+      }
+      updateChartTitles([{jid: data.jid, username: data.username}]);
+      updateStatusIndicator(data.jid, data.isOnline);
+      
+      const content = document.getElementById(`chart-content-${data.jid}`);
+      if (content && content.classList.contains('active')) {
+        if (!charts[data.jid]) {
+          createChart(data.jid);
+        }
+        updateChart(data.jid, data.onlineRanges, data.isOnline);
+        updateActivityLog(data.jid, data.logs);
+      }
+    } else if (data.type === 'connection') {
+      console.log('WhatsApp connection status:', data.status);
+    }
+  };
+
+  ws.onclose = () => {
+    console.log('WebSocket disconnected, reconnecting in 3s...');
+    setTimeout(() => window.location.reload(), 3000);
+  };
+
+  fetchUpdates();
+  setupSearch();
+</script>
+</body>
+</html>

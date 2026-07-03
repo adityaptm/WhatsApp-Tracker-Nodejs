@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Contacts - WhatsApp Status Tracker</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #10B981;
+            --primary-hover: #059669;
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: 'Inter', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            background-attachment: fixed;
+            margin: 0;
+            padding: 0;
+            color: var(--text-main);
+            min-height: 100vh;
+        }
+
+        .header {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            padding: 20px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(to right, #10B981, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .author {
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 400;
+            -webkit-text-fill-color: var(--text-muted);
+        }
+
+        .nav-links {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            gap: 25px;
+        }
+
+        .nav-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            padding: 8px 12px;
+            border-radius: 8px;
+        }
+
+        .nav-links a:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+
+        h2 {
+            text-align: center;
+            color: var(--text-main);
+            margin-bottom: 30px;
+            font-weight: 700;
+            font-size: 28px;
+        }
+
+        form {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            padding: 35px;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .search-container {
+            margin-bottom: 25px;
+            position: relative;
+        }
+
+        #search-input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 15px 20px;
+            font-size: 16px;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            border-radius: 12px;
+            transition: all 0.3s ease;
+        }
+
+        #search-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+        }
+
+        .contact-list {
+            max-height: 450px;
+            overflow-y: auto;
+            margin-bottom: 25px;
+            padding-right: 10px;
+        }
+
+        /* Custom scrollbar */
+        .contact-list::-webkit-scrollbar {
+            width: 8px;
+        }
+        .contact-list::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.1);
+            border-radius: 10px;
+        }
+        .contact-list::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 10px;
+        }
+        .contact-list::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .contact-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            margin-bottom: 8px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid transparent;
+            border-radius: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .contact-item:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: var(--border);
+            transform: translateX(4px);
+        }
+
+        .contact-item input[type="checkbox"] {
+            margin-right: 15px;
+            width: 18px;
+            height: 18px;
+            accent-color: var(--primary);
+            cursor: pointer;
+        }
+
+        .contact-item label {
+            cursor: pointer;
+            flex-grow: 1;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        input[type="submit"] {
+            display: block;
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, var(--primary) 0%, #059669 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+        }
+
+        input[type="submit"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+        }
+        input[type="submit"]:active {
+            transform: translateY(0);
+        }
+
+        .loading-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+        }
+
+        .qr-container {
+            text-align: center;
+            padding: 30px;
+        }
+        .qr-container img {
+            max-width: 300px;
+            border-radius: 12px;
+        }
+        .qr-container p {
+            margin-top: 16px;
+            color: var(--text-muted);
+        }
+
+        /* Add contact manually section */
+        .add-manual {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+        }
+        .add-manual h3 {
+            font-size: 16px;
+            margin-bottom: 12px;
+            color: var(--text-muted);
+        }
+        .add-manual-row {
+            display: flex;
+            gap: 10px;
+        }
+        .add-manual-row input[type="text"] {
+            flex: 1;
+            padding: 12px 16px;
+            font-size: 14px;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+        .add-manual-row input[type="text"]:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+        }
+        .add-manual-row button {
+            padding: 12px 20px;
+            background: linear-gradient(135deg, var(--primary) 0%, #059669 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+            transition: all 0.3s ease;
+        }
+        .add-manual-row button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                gap: 15px;
+            }
+            form {
+                padding: 20px;
+            }
+            .add-manual-row {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+<header class="header">
+    <div class="header-content">
+        <h1>WhatsApp Status Monitor<span class="author"> by adityaptmptr_</span></h1>
+        <nav>
+            <ul class="nav-links">
+                <li><a href="/select">Select Contacts</a></li>
+                <li><a href="/status">View Status</a></li>
+            </ul>
+        </nav>
+    </div>
+</header>
+
+<div class="container">
+    <h2>Select Contacts to Monitor</h2>
+    <form method="POST" action="/select" id="contact-form">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="Search contacts...">
+        </div>
+        <div class="contact-list" id="contact-list">
+            <div class="loading-state" id="loading-state">Loading contacts...</div>
+        </div>
+        <input type="submit" value="Monitor Selected Contacts">
+
+        <div class="add-manual">
+            <h3>➕ Tambah Nomor Manual</h3>
+            <div class="add-manual-row">
+                <input type="text" id="manual-phone" placeholder="Nomor HP (628xxxxxxxxxx)">
+                <input type="text" id="manual-name" placeholder="Nama (opsional)">
+                <button type="button" onclick="addManualContact()">Tambah</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script>
+    // Check connection status and load contacts dynamically
+    let checkInterval;
+
+    function checkStatus() {
+      fetch('/api/qr')
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === 'connected') {
+            clearInterval(checkInterval);
+            loadContacts();
+          } else if (data.status === 'waiting_qr' && data.qr) {
+            document.getElementById('loading-state').innerHTML = `
+              <div class="qr-container">
+                <p>📱 Scan QR Code dengan WhatsApp Anda:</p>
+                <img src="${data.qr}" alt="QR Code">
+                <p>Menunggu scan...</p>
+              </div>
+            `;
+          } else {
+            document.getElementById('loading-state').textContent = 'Menunggu koneksi WhatsApp...';
+          }
+        })
+        .catch(() => {
+          document.getElementById('loading-state').textContent = 'Gagal menghubungi server...';
+        });
+    }
+
+    function loadContacts() {
+      fetch('/api/contacts')
+        .then(r => r.json())
+        .then(contacts => {
+          const list = document.getElementById('contact-list');
+          if (contacts.length === 0) {
+            list.innerHTML = '<div class="loading-state">Tidak ada kontak ditemukan. Gunakan fitur "Tambah Nomor Manual" di bawah.</div>';
+            return;
+          }
+          let html = '';
+          contacts.forEach(c => {
+            html += `
+              <div class="contact-item">
+                <input type="checkbox" id="${c.jid}" name="contacts" value="${c.jid}">
+                <label for="${c.jid}">${c.name}</label>
+              </div>
+            `;
+          });
+          list.innerHTML = html;
+          setupSearch();
+        })
+        .catch(() => {
+          document.getElementById('contact-list').innerHTML = '<div class="loading-state">Gagal memuat kontak. Gunakan fitur "Tambah Nomor Manual" di bawah.</div>';
+        });
+    }
+
+    function setupSearch() {
+      const searchInput = document.getElementById('search-input');
+      searchInput.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase();
+        const items = document.querySelectorAll('.contact-item');
+        items.forEach(item => {
+          const label = item.querySelector('label');
+          const contactName = label.textContent.toLowerCase();
+          item.style.display = contactName.includes(searchTerm) ? '' : 'none';
+        });
+      });
+    }
+
+    function addManualContact() {
+      const phone = document.getElementById('manual-phone').value.trim();
+      const name = document.getElementById('manual-name').value.trim();
+      if (!phone) {
+        alert('Masukkan nomor HP terlebih dahulu');
+        return;
+      }
+
+      fetch('/api/add-contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === 'ok') {
+            alert(`✅ Kontak ditambahkan: ${data.name}`);
+            document.getElementById('manual-phone').value = '';
+            document.getElementById('manual-name').value = '';
+            window.location.href = '/status';
+          } else {
+            alert('Gagal menambahkan kontak: ' + (data.error || 'Unknown error'));
+          }
+        })
+        .catch(err => alert('Error: ' + err.message));
+    }
+
+    // Start checking
+    checkInterval = setInterval(checkStatus, 2000);
+    checkStatus();
+</script>
+</body>
+</html>

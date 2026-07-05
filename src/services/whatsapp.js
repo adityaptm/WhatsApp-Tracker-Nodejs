@@ -19,10 +19,28 @@ let qrDataURL = null;
 let connectionStatus = 'disconnected'; // 'disconnected' | 'waiting_qr' | 'connected'
 let allContacts = {}; // cached contacts from WhatsApp store
 
+const lidToJid = {}; // lid -> jid mapping
+const jidToLid = {}; // jid -> lid mapping
+
 function getSocket() { return sock; }
 function getQRDataURL() { return qrDataURL; }
 function getConnectionStatus() { return connectionStatus; }
 function getAllContacts() { return allContacts; }
+
+async function resolveContactLid(...jids) {
+  if (!sock || jids.length === 0) return;
+  try {
+    const waInfo = await sock.onWhatsApp(...jids);
+    for (const info of waInfo || []) {
+      if (info.exists && info.lid) {
+        lidToJid[info.lid] = info.jid;
+        jidToLid[info.jid] = info.lid;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to resolve LID(s):', err.message);
+  }
+}
 
 async function setupWhatsApp(wss) {
   loadState();
@@ -77,8 +95,11 @@ async function setupWhatsApp(wss) {
       // Send presence available (like Go's client.SendPresence)
       await sock.sendPresenceUpdate('available');
 
+      const trackedJids = Object.keys(state.userStatus);
+      await resolveContactLid(...trackedJids);
+
       // Re-subscribe all tracked contacts (like Go's re-subscribe loop)
-      for (const jid of Object.keys(state.userStatus)) {
+      for (const jid of trackedJids) {
         try {
           await sock.presenceSubscribe(jid);
           console.log(`Subscribed: ${jid}`);
@@ -124,13 +145,23 @@ async function setupWhatsApp(wss) {
 
   // Handle presence updates — the core tracking logic (like Go's eventHandler for *events.Presence)
   sock.ev.on('presence.update', (presenceUpdate) => {
+    const rawJid = presenceUpdate.id;
+    if (!rawJid) return;
+
+    let normalizedJid = rawJid;
+    if (rawJid.includes('@lid') && lidToJid[rawJid]) {
+      normalizedJid = lidToJid[rawJid];
+    } else if (rawJid.includes('@s.whatsapp.net') && jidToLid[rawJid]) {
+      // Sometimes it might come as normal JID but we want to ensure consistency. 
+      // State always uses @s.whatsapp.net format.
+      normalizedJid = rawJid;
+    }
+
+    console.log(`Presence RAW: ${rawJid} → NORMALIZED: ${normalizedJid}`);
     console.log("Presence Update:", JSON.stringify(presenceUpdate));
     
-    const jid = presenceUpdate.id;
-    if (!jid) return;
-
     // Only process tracked contacts
-    if (!(jid in state.userStatus)) return;
+    if (!(normalizedJid in state.userStatus)) return;
 
     const presences = presenceUpdate.presences;
     if (!presences) return;
@@ -139,18 +170,18 @@ async function setupWhatsApp(wss) {
       const isOnline = presence.lastKnownPresence === 'available' || presence.lastKnownPresence === 'composing';
       const statusText = isOnline ? 'Online' : 'Offline';
 
-      const prevStatus = state.userStatus[jid];
-      state.userStatus[jid] = statusText;
+      const prevStatus = state.userStatus[normalizedJid];
+      state.userStatus[normalizedJid] = statusText;
 
-      if (!state.userStatusLog[jid]) {
-        state.userStatusLog[jid] = [];
+      if (!state.userStatusLog[normalizedJid]) {
+        state.userStatusLog[normalizedJid] = [];
       }
-      state.userStatusLog[jid].push({
+      state.userStatusLog[normalizedJid].push({
         time: new Date().toISOString(),
         status: statusText,
       });
 
-      const name = state.userNames[jid] || jid;
+      const name = state.userNames[normalizedJid] || normalizedJid;
 
       // Only send notification if status actually changed (like Go version)
       if (prevStatus !== statusText) {
@@ -164,12 +195,12 @@ async function setupWhatsApp(wss) {
       }
 
       // Broadcast via WebSocket for real-time update
-      const logs = state.userStatusLog[jid] || [];
+      const logs = state.userStatusLog[normalizedJid] || [];
       const onlineRanges = calculateOnlineRanges(logs);
       broadcastUpdate({
         type: 'presence',
-        jid,
-        username: state.userNames[jid] || '',
+        jid: normalizedJid,
+        username: state.userNames[normalizedJid] || '',
         status: statusText,
         isOnline,
         onlineRanges,
@@ -187,4 +218,5 @@ module.exports = {
   getQRDataURL,
   getConnectionStatus,
   getAllContacts,
+  resolveContactLid,
 };

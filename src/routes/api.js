@@ -4,7 +4,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { getQRDataURL, getConnectionStatus, getSocket, getAllContacts } = require('../services/whatsapp');
+const { getQRDataURL, getConnectionStatus, getSocket, getAllContacts, resolveContactLid } = require('../services/whatsapp');
 const { state, saveState, calculateOnlineRanges } = require('../services/state');
 
 // GET /api/qr — QR code as data URL
@@ -57,6 +57,8 @@ router.post('/contacts/select', async (req, res) => {
   if (!selectedJIDs || !Array.isArray(selectedJIDs)) {
     return res.status(400).json({ error: 'contacts array is required' });
   }
+
+  await resolveContactLid(...selectedJIDs);
 
   for (const jid of selectedJIDs) {
     try {
@@ -176,6 +178,7 @@ router.post('/add-contact', async (req, res) => {
   const jid = phone + '@s.whatsapp.net';
 
   try {
+    await resolveContactLid(jid);
     await sock.presenceSubscribe(jid);
     console.log("Subscribed:", jid);
   } catch (err) {

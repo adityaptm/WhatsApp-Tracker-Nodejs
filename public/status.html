@@ -8,6 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/moment.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/1.2.1/chartjs-plugin-zoom.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
   <style>
     :root {
       --primary: #10B981;
@@ -138,6 +139,12 @@
     }
     .chart-header-left {
       display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: flex-start;
+    }
+    .chart-header-top {
+      display: flex;
       align-items: center;
       gap: 8px;
     }
@@ -148,6 +155,11 @@
     }
     .chart-username {
       display: none;
+    }
+    .header-lastseen {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
     }
 
     .status-indicator {
@@ -183,20 +195,19 @@
       transition: opacity 0.2s;
       color: var(--text-main);
     }
-    .rename-btn:hover { opacity: 1; }
+    .rename-btn:hover { opacity: 1; color: var(--primary); }
     .delete-btn {
       background: rgba(239, 68, 68, 0.2);
       color: var(--offline-color);
       border: none;
-      width: 26px;
-      height: 26px;
+      width: 28px;
+      height: 28px;
       border-radius: 50%;
       display: flex;
       justify-content: center;
       align-items: center;
       cursor: pointer;
-      font-size: 11px;
-      font-weight: bold;
+      font-size: 14px;
       transition: all 0.2s;
     }
     .delete-btn:hover {
@@ -384,7 +395,7 @@
 <body>
 <header class="header">
   <div class="header-content">
-    <h1><span class="wa-icon">📱</span> WA Status Tracker</h1>
+    <h1><i class='bx bxl-whatsapp' style="font-size: 24px;"></i> WA Status Tracker</h1>
     <nav>
       <ul class="nav-links">
         <li><a href="/select">Select Contacts</a></li>
@@ -564,12 +575,25 @@
               <span class="profile-phone">${phoneNum}</span>
             </div>
           </div>
-          <div class="profile-lastseen">
-            <div class="profile-lastseen-label">Last Seen</div>
-            <div class="profile-lastseen-value">${lastSeenText}</div>
-          </div>
         </div>
       `;
+    }
+
+    const lsEl = document.getElementById(`header-ls-${jid}`);
+    if (lsEl) {
+      let lsText = 'Menunggu data...';
+      if (isOnline) {
+        lsText = 'Online sekarang';
+      } else if (lastOpen) {
+        if (lastOpen.isSame(moment(), 'day')) {
+          lsText = 'Terakhir dilihat: Hari ini ' + lastOpen.format('HH:mm');
+        } else {
+          lsText = 'Terakhir dilihat: ' + lastOpen.format('DD/MM/YYYY') + ' ' + lastOpen.format('HH:mm');
+        }
+      } else {
+        lsText = 'Belum ada data (Offline)';
+      }
+      lsEl.textContent = lsText;
     }
 
     charts[jid].data.datasets[0].data = data;
@@ -687,13 +711,15 @@
     card.innerHTML = `
       <div class="chart-header ${headerClass}" onclick="toggleChart('${jid}')">
         <div class="chart-header-left">
-          <span class="chart-title">${displayName}</span>
-          <span class="chart-username"></span>
-          <button class="rename-btn" onclick="event.stopPropagation(); renameContact('${jid}', '${displayName}')" title="Ubah Nama">✏️</button>
+          <div class="chart-header-top">
+            <span class="chart-title">${displayName}</span>
+            <button class="rename-btn" onclick="event.stopPropagation(); renameContact('${jid}', '${displayName}')" title="Ubah Nama"><i class='bx bx-edit-alt'></i></button>
+          </div>
+          <div class="header-lastseen" id="header-ls-${jid}">Menunggu data...</div>
         </div>
         <div class="header-actions">
           <span id="status-${jid}" class="status-indicator ${statusClass}">${statusText}</span>
-          <button class="delete-btn" onclick="removeContact(event, '${jid}')" title="Hapus">✕</button>
+          <button class="delete-btn" onclick="removeContact(event, '${jid}')" title="Hapus"><i class='bx bx-trash'></i></button>
         </div>
       </div>
       <div id="chart-content-${jid}" class="chart-content">

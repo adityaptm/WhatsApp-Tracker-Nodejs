@@ -14,6 +14,7 @@ const state = {
   userStatus: {},    // map[string]string — current status per JID
   userNames: {},     // map[string]string — display name per JID
   userStatusLog: {}, // map[string][]StatusLog — history of status changes
+  phoneMapping: {},  // map[string]string — map LID to Phone JID internally
 };
 
 /**
@@ -25,20 +26,23 @@ function loadState() {
     const raw = fs.readFileSync(STATE_FILE, 'utf8');
     const data = JSON.parse(raw);
 
-    // Support new format { logs, names, status }
+    console.log(`[DEBUG] Raw state loaded:`, JSON.stringify(data).substring(0, 150));
+
     if (data.logs) {
-      state.userStatusLog = data.logs;
+      Object.assign(state.userStatusLog, data.logs);
     }
     if (data.names) {
-      state.userNames = data.names;
+      Object.assign(state.userNames, data.names);
     }
     if (data.status) {
-      state.userStatus = data.status;
+      Object.assign(state.userStatus, data.status);
+    }
+    if (data.phoneMapping) {
+      Object.assign(state.phoneMapping, data.phoneMapping);
     }
 
-    // Fallback: old format where the file was just the logs map directly
     if (!data.logs && !data.names && !data.status) {
-      state.userStatusLog = data;
+      Object.assign(state.userStatusLog, data);
     }
 
     const count = Object.keys(state.userStatus).length;
@@ -57,8 +61,10 @@ function saveState() {
       logs: state.userStatusLog,
       names: state.userNames,
       status: state.userStatus,
+      phoneMapping: state.phoneMapping,
     };
     fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2), 'utf8');
+    // console.log(`[DEBUG] State disimpan ke file.`);
   } catch (err) {
     console.error('Error saving state:', err.message);
   }

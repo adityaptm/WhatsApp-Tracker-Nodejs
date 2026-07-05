@@ -10,16 +10,38 @@ let wssInstance = null;
 function setupWebSocket(server) {
   wssInstance = new WebSocketServer({ server, path: '/ws' });
 
+  // Ping interval to keep connections alive and detect dead connections
+  const interval = setInterval(() => {
+    if (!wssInstance) return;
+    wssInstance.clients.forEach((client) => {
+      if (client.isAlive === false) {
+        console.log('🔌 Terminating dead WebSocket client');
+        return client.terminate();
+      }
+      client.isAlive = false;
+      client.ping();
+    });
+  }, 30000);
+
   wssInstance.on('connection', (ws) => {
     console.log('🔌 WebSocket client connected');
+    ws.isAlive = true;
 
-    ws.on('close', () => {
-      console.log('🔌 WebSocket client disconnected');
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
+
+    ws.on('close', (code, reason) => {
+      console.log(`🔌 WebSocket client disconnected (Code: ${code}, Reason: ${reason ? reason.toString() : 'No reason'})`);
     });
 
     ws.on('error', (err) => {
       console.error('WebSocket error:', err.message);
     });
+  });
+
+  wssInstance.on('close', () => {
+    clearInterval(interval);
   });
 
   return wssInstance;

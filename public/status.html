@@ -543,9 +543,11 @@
     // Update profile header
     const summaryElement = document.getElementById(`summary-${jid}`);
     if (summaryElement) {
-      let phoneNum = jid.split('@')[0];
-      if (phoneNum.startsWith('62')) {
-        phoneNum = '+62 ' + phoneNum.substring(2, 5) + '-' + phoneNum.substring(5, 8) + '-' + phoneNum.substring(8);
+      let displayId = jid.split('@')[0];
+      if (jid.includes('@lid')) {
+        displayId = 'LID: ' + displayId;
+      } else if (displayId.startsWith('62')) {
+        displayId = '+62 ' + displayId.substring(2, 5) + '-' + displayId.substring(5, 8) + '-' + displayId.substring(8);
       }
       
       let lastSeenText = '';
@@ -563,20 +565,39 @@
 
       const escJid = CSS.escape(jid);
       const titleEl = document.querySelector(`#${escJid} .chart-title`);
-      const displayName = titleEl ? titleEl.textContent.trim() : phoneNum;
+      const displayName = titleEl ? titleEl.textContent.trim() : displayId;
       const initial = displayName.charAt(0).toUpperCase();
 
       summaryElement.innerHTML = `
-        <div class="profile-header">
+        <div class="profile-header" style="border-bottom: none; padding-bottom: 12px;">
           <div class="profile-info">
             <div class="profile-avatar">${initial}</div>
             <div class="profile-details">
               <span class="profile-name">${displayName}</span>
-              <span class="profile-phone">${phoneNum}</span>
+              <span class="profile-phone">${displayId}</span>
             </div>
           </div>
         </div>
+        <div style="padding: 0 20px 16px 20px; border-bottom: 1px solid var(--border); margin-bottom: 8px;">
+          <div class="profile-lastseen-label">Last Seen</div>
+          <div class="profile-lastseen-value" style="color: ${isOnline ? 'var(--primary)' : 'var(--online-color)'};">${lastSeenText}</div>
+        </div>
       `;
+    }
+
+    charts[jid].data.datasets[0].data = data;
+    charts[jid].update();
+  }
+
+  function updateHeaderLastSeen(jid, isOnline, onlineRanges) {
+    let lastOpen = null;
+    if (onlineRanges && onlineRanges.length > 0) {
+      onlineRanges.forEach(range => {
+        if (range && range.start && range.end) {
+          const end = moment(range.end);
+          if (!lastOpen || end.isAfter(lastOpen)) lastOpen = end;
+        }
+      });
     }
 
     const lsEl = document.getElementById(`header-ls-${jid}`);
@@ -595,9 +616,7 @@
       }
       lsEl.textContent = lsText;
     }
-
-    charts[jid].data.datasets[0].data = data;
-    charts[jid].update();
+    
     updateStatusIndicator(jid, isOnline);
   }
 
@@ -756,14 +775,15 @@
               createContactCard(update.jid, update.username, update.isOnline);
             }
             const content = document.getElementById(`chart-content-${update.jid}`);
-            updateStatusIndicator(update.jid, update.isOnline);
-            if (content && content.classList.contains('active')) {
-              if (!charts[update.jid]) {
-                createChart(update.jid);
-              }
-              updateChart(update.jid, update.onlineRanges, update.isOnline);
-              updateActivityLog(update.jid, update.logs);
+            
+            // Always update the header and last seen regardless of expanded state
+            updateHeaderLastSeen(update.jid, update.isOnline, update.onlineRanges);
+
+            if (!charts[update.jid]) {
+              createChart(update.jid);
             }
+            updateChart(update.jid, update.onlineRanges, update.isOnline);
+            updateActivityLog(update.jid, update.logs);
           }
         });
       })
@@ -783,37 +803,51 @@
     });
   }
 
-  
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
-  
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.type === 'presence') {
-      let container = document.getElementById(data.jid);
-      if (!container) {
-        createContactCard(data.jid, data.username, data.isOnline);
-      }
-      updateChartTitles([{jid: data.jid, username: data.username}]);
-      updateStatusIndicator(data.jid, data.isOnline);
-      
-      const content = document.getElementById(`chart-content-${data.jid}`);
-      if (content && content.classList.contains('active')) {
+  let reconnectDelay = 2000;
+  let ws = null;
+
+  function connectWebSocket() {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
+    
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      reconnectDelay = 2000; // reset delay on successful connection
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'presence') {
+        let container = document.getElementById(data.jid);
+        if (!container) {
+          createContactCard(data.jid, data.username, data.isOnline);
+        }
+        updateChartTitles([{jid: data.jid, username: data.username}]);
+        updateHeaderLastSeen(data.jid, data.isOnline, data.onlineRanges);
+        
         if (!charts[data.jid]) {
           createChart(data.jid);
         }
         updateChart(data.jid, data.onlineRanges, data.isOnline);
         updateActivityLog(data.jid, data.logs);
+      } else if (data.type === 'connection') {
+        console.log('WhatsApp connection status:', data.status);
       }
-    } else if (data.type === 'connection') {
-      console.log('WhatsApp connection status:', data.status);
-    }
-  };
+    };
 
-  ws.onclose = () => {
-    console.log('WebSocket disconnected, reconnecting in 3s...');
-    setTimeout(() => window.location.reload(), 3000);
-  };
+    ws.onclose = (e) => {
+      console.log(`WebSocket disconnected (Code: ${e.code}, Reason: ${e.reason}). Reconnecting in ${reconnectDelay}ms...`);
+      setTimeout(connectWebSocket, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 1.5, 30000); // Backoff up to 30s
+    };
+    
+    ws.onerror = (err) => {
+      console.error('WebSocket error:', err);
+      // onclose will be triggered immediately after onerror
+    };
+  }
+
+  connectWebSocket();
 
   fetchUpdates();
   setupSearch();

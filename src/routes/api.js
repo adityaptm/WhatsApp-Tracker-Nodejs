@@ -4,7 +4,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { getQRDataURL, getConnectionStatus, getSocket, getAllContacts, resolveContactLid } = require('../services/whatsapp');
+const { getQRDataURL, getConnectionStatus, getSocket, getAllContacts, resolveContactLid, jidToLid } = require('../services/whatsapp');
 const { state, saveState, calculateOnlineRanges } = require('../services/state');
 
 // GET /api/qr — QR code as data URL
@@ -30,13 +30,17 @@ router.get('/contacts', (req, res) => {
   for (const [jid, contact] of Object.entries(contacts)) {
     // Skip non-user JIDs (groups, broadcast, etc)
     if (!jid.endsWith('@s.whatsapp.net')) continue;
-    result.push({
-      jid,
-      name: contact.name || contact.notify || contact.verifiedName || '+' + jid.split('@')[0],
-    });
+    // Map to LID for frontend if available, else omit (or fetch it)
+    const lid = contact.lid || (jidToLid && jidToLid[jid]);
+    if (lid) {
+      result.push({
+        jid: lid, // return LID
+        name: contact.name || contact.notify || contact.verifiedName || lid,
+      });
+    }
   }
   // Sort by name
-  result.sort((a, b) => a.name.localeCompare(b.name));
+  result.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   res.json(result);
 });
 
@@ -58,14 +62,21 @@ router.post('/contacts/select', async (req, res) => {
     return res.status(400).json({ error: 'contacts array is required' });
   }
 
-  await resolveContactLid(...selectedJIDs);
-
+  const waInfos = await resolveContactLid(...selectedJIDs) || [];
+  
   for (const jid of selectedJIDs) {
     try {
       await sock.presenceSubscribe(jid);
       console.log("Subscribed:", jid);
-      if (!state.userStatus[jid]) {
-        state.userStatus[jid] = 'Menunggu...';
+      
+      const info = waInfos.find(i => i.jid === jid);
+      const lid = (info && info.lid) ? info.lid : jid;
+      
+      if (!state.userStatus[lid]) {
+        state.userStatus[lid] = 'Menunggu...';
+      }
+      if (lid !== jid) {
+         state.phoneMapping[lid] = jid;
       }
     } catch (err) {
       console.error(`Failed to subscribe ${jid}:`, err.message);
@@ -103,8 +114,15 @@ router.get('/contacts/tracked', (req, res) => {
 // GET /api/contacts/:jid/status — specific contact status
 router.get('/contacts/:jid/status', (req, res) => {
   const jid = req.params.jid;
-  // Support both full JID and just phone number
-  const fullJid = jid.includes('@') ? jid : jid + '@s.whatsapp.net';
+  // JID passed here will now likely be a LID from the frontend.
+  // We can just use it directly.
+  let fullJid = jid;
+  if (!fullJid.includes('@')) fullJid += '@s.whatsapp.net'; // Only if they manually typed it
+
+  // But we allow it to be LID
+  if (jid.includes('@lid')) {
+    fullJid = jid;
+  }
 
   if (!state.userStatus[fullJid]) {
     return res.status(404).json({ error: 'Contact not tracked' });
@@ -178,34 +196,40 @@ router.post('/add-contact', async (req, res) => {
   const jid = phone + '@s.whatsapp.net';
 
   try {
-    await resolveContactLid(jid);
+    const waInfo = await resolveContactLid(jid);
+    if (!waInfo || waInfo.length === 0 || !waInfo[0].exists || !waInfo[0].lid) {
+       return res.status(400).json({ error: 'Nomor tidak ditemukan di WhatsApp atau tidak memiliki LID' });
+    }
+    const lid = waInfo[0].lid;
+    
     await sock.presenceSubscribe(jid);
-    console.log("Subscribed:", jid);
+    console.log(`Subscribed: ${jid} (LID: ${lid})`);
+    
+    if (!state.userStatus[lid]) {
+      state.userStatus[lid] = 'Menunggu...';
+    }
+    if (name) {
+      state.userNames[lid] = name;
+    } else if (!state.userNames[lid]) {
+      state.userNames[lid] = lid; // Do not use phone number
+    }
+  
+    if (!state.userStatusLog[lid]) {
+      state.userStatusLog[lid] = [];
+    }
+    
+    state.phoneMapping[lid] = jid;
+    saveState();
+    console.log(`📌 Kontak ditambahkan: LID ${lid} (${state.userNames[lid]})`);
+  
+    res.json({
+      status: 'ok',
+      jid: lid,
+      name: state.userNames[lid],
+    });
   } catch (err) {
-    return res.status(400).json({ error: 'invalid phone number' });
+    return res.status(400).json({ error: 'Gagal menambahkan kontak: ' + err.message });
   }
-
-  if (!state.userStatus[jid]) {
-    state.userStatus[jid] = 'Menunggu...';
-  }
-  if (name) {
-    state.userNames[jid] = name;
-  } else if (!state.userNames[jid]) {
-    state.userNames[jid] = '+' + phone;
-  }
-
-  if (!state.userStatusLog[jid]) {
-    state.userStatusLog[jid] = [];
-  }
-
-  saveState();
-  console.log(`📌 Kontak ditambahkan: ${jid} (${state.userNames[jid]})`);
-
-  res.json({
-    status: 'ok',
-    jid,
-    name: state.userNames[jid],
-  });
 });
 
 // Legacy compatibility: /api/status-updates (used by status.html polling)

@@ -82,7 +82,7 @@ async function setupWhatsApp(wss) {
     printQRInTerminal: true,
     logger: pino({ level: 'silent' }),
     browser: ['WA-Tracker', 'Chrome', '4.0.0'],
-    syncFullHistory: false,
+    syncFullHistory: true,
     // Required for SenderKey decryption (status/story messages use Signal SenderKey protocol)
     getMessage: async (key) => {
       const id = `${key.remoteJid}:${key.id}`;

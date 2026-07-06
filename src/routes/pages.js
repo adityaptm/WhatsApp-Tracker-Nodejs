@@ -36,11 +36,21 @@ router.post('/select', (req, res) => {
     const promises = contacts.map(async (jid) => {
       try {
         await sock.presenceSubscribe(jid);
-        if (!state.userStatus[jid]) {
-          state.userStatus[jid] = 'Menunggu...';
+        
+        // Resolve LID
+        const waInfo = await sock.onWhatsApp(jid);
+        const lid = (waInfo && waInfo[0] && waInfo[0].exists && waInfo[0].lid) ? waInfo[0].lid : jid;
+        
+        if (lid !== jid && lid.includes('@lid')) {
+          await sock.presenceSubscribe(lid);
+          state.phoneMapping[lid] = jid;
         }
-        if (!state.userStatusLog[jid]) {
-          state.userStatusLog[jid] = [];
+
+        if (!state.userStatus[lid]) {
+          state.userStatus[lid] = 'Menunggu...';
+        }
+        if (!state.userStatusLog[lid]) {
+          state.userStatusLog[lid] = [];
         }
       } catch (err) {
         console.error(`Failed to subscribe ${jid}:`, err.message);

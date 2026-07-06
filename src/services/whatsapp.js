@@ -3,7 +3,7 @@
  * Handles: connection, QR code generation, presence subscription, event handling.
  */
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const QRCode = require('qrcode');
 const pino = require('pino');
 const path = require('path');
@@ -66,6 +66,9 @@ async function resolveContactLid(...jids) {
   }
 }
 
+// In-memory store for getMessage (required for SenderKey decryption of status messages)
+const messageStore = new Map();
+
 async function setupWhatsApp(wss) {
   loadState();
   loadContactsCache();
@@ -80,6 +83,11 @@ async function setupWhatsApp(wss) {
     logger: pino({ level: 'silent' }),
     browser: ['WA-Tracker', 'Chrome', '4.0.0'],
     syncFullHistory: false,
+    // Required for SenderKey decryption (status/story messages use Signal SenderKey protocol)
+    getMessage: async (key) => {
+      const id = `${key.remoteJid}:${key.id}`;
+      return messageStore.get(id);
+    },
   });
 
   // Handle connection updates (QR code, connected, disconnected)
@@ -124,6 +132,15 @@ async function setupWhatsApp(wss) {
       // Send presence available (like Go's client.SendPresence)
       await sock.sendPresenceUpdate('available');
 
+      // Populate in-memory JID-to-LID mapping from persistent phoneMapping
+      if (state.phoneMapping) {
+        for (const [lid, phoneJid] of Object.entries(state.phoneMapping)) {
+          lidToJid[lid] = phoneJid;
+          jidToLid[phoneJid] = lid;
+        }
+        console.log(`🔗 Loaded ${Object.keys(jidToLid).length} LID mappings from phoneMapping`);
+      }
+
       // Migrate existing state from JID to LID if necessary
       const trackedKeys = Object.keys(state.userStatus);
       const jidsToResolve = trackedKeys.filter(k => k.includes('@s.whatsapp.net'));
@@ -154,6 +171,10 @@ async function setupWhatsApp(wss) {
         try {
           await sock.presenceSubscribe(phoneJid);
           console.log(`Subscribed: ${phoneJid} (LID: ${id})`);
+          if (id !== phoneJid && id.includes('@lid')) {
+            await sock.presenceSubscribe(id);
+            console.log(`Subscribed directly to LID: ${id}`);
+          }
         } catch (err) {
           console.error(`Failed to re-subscribe ${phoneJid}:`, err.message);
         }
@@ -204,6 +225,7 @@ async function setupWhatsApp(wss) {
 
   // Handle presence updates — the core tracking logic (like Go's eventHandler for *events.Presence)
   sock.ev.on('presence.update', (presenceUpdate) => {
+    console.log('👀 Presence event masuk:', JSON.stringify(presenceUpdate));
     const rawJid = presenceUpdate.id;
     if (!rawJid) return;
 
@@ -268,7 +290,152 @@ async function setupWhatsApp(wss) {
       saveState();
     }
   });
+
+  // Handle Status updates (Story saver)
+  // Debug: log EVERY messages.upsert RAW to diagnose delivery
+  sock.ev.on('messages.upsert', async (m) => {
+    // ── Store ALL messages for getMessage callback (SenderKey decryption) ──
+    for (const msg of m.messages || []) {
+      if (msg.key && msg.message) {
+        const storeId = `${msg.key.remoteJid}:${msg.key.id}`;
+        messageStore.set(storeId, msg.message);
+        // Keep store bounded — remove oldest if over 500 entries
+        if (messageStore.size > 500) {
+          messageStore.delete(messageStore.keys().next().value);
+        }
+      }
+    }
+
+    // ── DEBUG: always log to see what's coming in ──────────────────
+    const hasStatusBroadcast = m.messages && m.messages.some(msg => msg.key && msg.key.remoteJid === 'status@broadcast');
+    if (hasStatusBroadcast) {
+      console.log('📡 [STORY DEBUG] status@broadcast message received!');
+      console.log('📡 [STORY DEBUG] RAW:', JSON.stringify(m, null, 2));
+    } else {
+      // Log non-story upserts briefly (not full dump)
+      console.log(`📩 [messages.upsert] type=${m.type} count=${m.messages?.length}`);
+    }
+    // ──────────────────────────────────────────────────────────────
+
+    // Accept both 'notify' (new msg) and 'append' (history-synced status)
+    if (m.type !== 'notify' && m.type !== 'append') return;
+
+    for (const msg of m.messages) {
+      if (msg.key.remoteJid !== 'status@broadcast') continue;
+
+      // participant field holds the real sender JID for status@broadcast
+      // For self-stories it is absent — skip those
+      const participantJid = msg.key.participant || msg.participant;
+      console.log(`📡 [STORY DEBUG] participant=${participantJid} fromMe=${msg.key.fromMe}`);
+      if (!participantJid) continue;
+
+      // Reverse lookup: participantJid is always @s.whatsapp.net
+      // Check if this phone JID maps to a tracked LID via phoneMapping
+      let normalizedJid = null;
+      for (const [lid, phoneJid] of Object.entries(state.phoneMapping)) {
+        if (phoneJid === participantJid && state.userStatus[lid] !== undefined) {
+          normalizedJid = lid;
+          break;
+        }
+      }
+      // Also try direct match (in case contact was tracked by phone JID directly)
+      if (!normalizedJid && state.userStatus[participantJid] !== undefined) {
+        normalizedJid = participantJid;
+      }
+
+      if (!normalizedJid) {
+        console.log(`📡 [STORY DEBUG] participant ${participantJid} NOT tracked — skip`);
+        continue;
+      }
+
+      console.log(`📡 [STORY DEBUG] ✅ Matched tracked contact: ${normalizedJid}`);
+
+      const msgId = msg.key.id;
+      const timestamp = (msg.messageTimestamp
+        ? (typeof msg.messageTimestamp === 'object' ? Number(msg.messageTimestamp.low || msg.messageTimestamp) : msg.messageTimestamp)
+        : Math.floor(Date.now() / 1000)) * 1000;
+
+      const messageContent = msg.message;
+      if (!messageContent) {
+        console.log('📡 [STORY DEBUG] msg.message is empty — skip');
+        continue;
+      }
+
+      const contentKeys = Object.keys(messageContent);
+      console.log(`📡 [STORY DEBUG] contentKeys: ${contentKeys.join(', ')}`);
+
+      // Try to find the real content, unwrapping senderKeyDistributionMessage etc.
+      let contentKey = contentKeys.find(k => ['imageMessage', 'videoMessage', 'extendedTextMessage'].includes(k));
+
+      if (!contentKey) {
+        console.log(`📡 [STORY DEBUG] No usable content key found in: ${contentKeys.join(', ')}`);
+        continue;
+      }
+
+      try {
+        let type = 'unknown';
+        let caption = '';
+        let mediaUrl = null;
+        let textOptions = null;
+
+        if (contentKey === 'imageMessage' || contentKey === 'videoMessage') {
+          type = contentKey === 'imageMessage' ? 'image' : 'video';
+          const mediaObj = messageContent[contentKey];
+          caption = mediaObj.caption || '';
+
+          const ext = type === 'image' ? 'jpg' : 'mp4';
+          const jidFolder = normalizedJid.replace(/[^a-zA-Z0-9]/g, '_');
+          const saveDir = path.join(__dirname, '..', '..', 'storage', 'statuses', jidFolder);
+          if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true });
+
+          const fileName = `${timestamp}_${msgId}.${ext}`;
+          const savePath = path.join(saveDir, fileName);
+
+          if (!fs.existsSync(savePath)) {
+            const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+            fs.writeFileSync(savePath, buffer);
+          }
+          mediaUrl = `/storage/statuses/${jidFolder}/${fileName}`;
+
+        } else if (contentKey === 'extendedTextMessage') {
+          type = 'text';
+          const textMsg = messageContent[contentKey];
+          caption = textMsg.text || '';
+          let bgHex = '#000000';
+          if (textMsg.backgroundArgb) {
+            bgHex = '#' + (textMsg.backgroundArgb >>> 0).toString(16).padStart(8, '0').slice(2);
+          }
+          textOptions = { backgroundColor: bgHex, font: textMsg.font || 0 };
+        }
+
+        if (type !== 'unknown') {
+          if (!state.userStatuses[normalizedJid]) state.userStatuses[normalizedJid] = [];
+          const exists = state.userStatuses[normalizedJid].find(s => s.id === msgId);
+          if (!exists) {
+            state.userStatuses[normalizedJid].push({ id: msgId, timestamp, type, mediaUrl, caption, textOptions });
+            saveState();
+            const name = state.userNames[normalizedJid] || normalizedJid;
+            console.log(`📖 Story baru disimpan dari ${name} (${normalizedJid}): ${type}`);
+          } else {
+            console.log(`📡 [STORY DEBUG] Duplicate story ${msgId} — skip`);
+          }
+        }
+      } catch (err) {
+        console.error(`❌ Failed to save story from ${participantJid}:`, err.message);
+      }
+    }
+  });
+
+  // Also listen on 'status.update' if it exists in this Baileys version
+  if (typeof sock.ev.on === 'function') {
+    try {
+      sock.ev.on('status.update', (update) => {
+        console.log('📡 [STATUS.UPDATE]', JSON.stringify(update, null, 2));
+      });
+    } catch(_) { /* event may not exist */ }
+  }
 }
+
 
 module.exports = {
   setupWhatsApp,

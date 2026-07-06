@@ -72,6 +72,11 @@ router.post('/contacts/select', async (req, res) => {
       const info = waInfos.find(i => i.jid === jid);
       const lid = (info && info.lid) ? info.lid : jid;
       
+      if (lid !== jid && lid.includes('@lid')) {
+        await sock.presenceSubscribe(lid);
+        console.log("Subscribed directly to LID:", lid);
+      }
+      
       if (!state.userStatus[lid]) {
         state.userStatus[lid] = 'Menunggu...';
       }
@@ -204,6 +209,10 @@ router.post('/add-contact', async (req, res) => {
     
     await sock.presenceSubscribe(jid);
     console.log(`Subscribed: ${jid} (LID: ${lid})`);
+    if (lid !== jid && lid.includes('@lid')) {
+      await sock.presenceSubscribe(lid);
+      console.log(`Subscribed directly to LID: ${lid}`);
+    }
     
     if (!state.userStatus[lid]) {
       state.userStatus[lid] = 'Menunggu...';
@@ -250,6 +259,101 @@ router.get('/status-updates', (req, res) => {
     });
   }
   res.json(updates);
+});
+
+// ─── Story / Status Saver ────────────────────────────────────────────
+// NOTE: These MUST come AFTER all literal /contacts/* routes (e.g. /contacts/tracked)
+// to prevent Express matching 'tracked' as the :jid param.
+
+// GET /api/statuses — ALL stories from ALL tracked contacts, newest first
+router.get('/statuses', (req, res) => {
+  try {
+    const retentionDays = parseInt(process.env.STORY_RETENTION_DAYS || '30', 10);
+    const cutoffTime = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
+    const all = [];
+
+    for (const [jid, stories] of Object.entries(state.userStatuses)) {
+      if (!Array.isArray(stories)) continue;
+      const name = state.userNames[jid] || jid;
+      for (const s of stories) {
+        if (s.timestamp >= cutoffTime) {
+          all.push({ ...s, jid, contactName: name });
+        }
+      }
+    }
+
+    all.sort((a, b) => b.timestamp - a.timestamp);
+    console.log(`[Story API] GET /statuses → ${all.length} stories total`);
+    return res.json(all);
+  } catch (err) {
+    console.error('[Story API] /statuses error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/contacts/:jid/statuses
+router.get('/contacts/:jid/statuses', (req, res) => {
+  try {
+    const jid = decodeURIComponent(req.params.jid);
+    console.log(`[Story API] GET statuses for JID: "${jid}"`);
+
+    let fullJid = jid;
+    if (!fullJid.includes('@')) fullJid += '@s.whatsapp.net';
+
+    const statuses = state.userStatuses[fullJid] || [];
+    const retentionDays = parseInt(process.env.STORY_RETENTION_DAYS || '30', 10);
+    const cutoffTime = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
+    const validStatuses = statuses.filter(s => s.timestamp >= cutoffTime);
+
+    if (validStatuses.length !== statuses.length) {
+      state.userStatuses[fullJid] = validStatuses;
+      saveState();
+    }
+
+    return res.json(validStatuses.sort((a, b) => b.timestamp - a.timestamp));
+  } catch (err) {
+    console.error('[Story API] Error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/contacts/:jid/statuses/:statusId
+router.delete('/contacts/:jid/statuses/:statusId', (req, res) => {
+  try {
+    const jid = decodeURIComponent(req.params.jid);
+    const statusId = req.params.statusId;
+
+    let fullJid = jid;
+    if (!fullJid.includes('@')) fullJid += '@s.whatsapp.net';
+
+    if (!state.userStatuses[fullJid]) {
+      return res.status(404).json({ error: 'No statuses found for this contact' });
+    }
+
+    const story = state.userStatuses[fullJid].find(s => s.id === statusId);
+    if (story && story.mediaUrl) {
+      try {
+        const fs = require('fs');
+        const filepath = require('path').join(__dirname, '..', '..', story.mediaUrl);
+        if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+      } catch (fileErr) {
+        console.error('Failed to delete media file:', fileErr.message);
+      }
+    }
+
+    const before = state.userStatuses[fullJid].length;
+    state.userStatuses[fullJid] = state.userStatuses[fullJid].filter(s => s.id !== statusId);
+
+    if (state.userStatuses[fullJid].length < before) {
+      saveState();
+      return res.json({ status: 'ok' });
+    }
+
+    return res.status(404).json({ error: 'Status not found' });
+  } catch (err) {
+    console.error('[Story API] Delete Error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

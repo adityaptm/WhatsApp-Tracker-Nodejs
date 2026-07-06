@@ -15,6 +15,7 @@ const state = {
   userNames: {},     // map[string]string — display name per JID
   userStatusLog: {}, // map[string][]StatusLog — history of status changes
   phoneMapping: {},  // map[string]string — map LID to Phone JID internally
+  userStatuses: {},  // map[string][]Story — saved WhatsApp statuses (stories)
 };
 
 /**
@@ -40,6 +41,9 @@ function loadState() {
     if (data.phoneMapping) {
       Object.assign(state.phoneMapping, data.phoneMapping);
     }
+    if (data.statuses) {
+      Object.assign(state.userStatuses, data.statuses);
+    }
 
     if (!data.logs && !data.names && !data.status) {
       Object.assign(state.userStatusLog, data);
@@ -62,6 +66,7 @@ function saveState() {
       names: state.userNames,
       status: state.userStatus,
       phoneMapping: state.phoneMapping,
+      statuses: state.userStatuses,
     };
     fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2), 'utf8');
     // console.log(`[DEBUG] State disimpan ke file.`);

@@ -1,0 +1,1 @@
+NTFY_ICON=https://cdn-icons-png.flaticon.com/512/124/124034.png

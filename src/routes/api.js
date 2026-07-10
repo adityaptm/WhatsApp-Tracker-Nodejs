@@ -4,7 +4,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { getQRDataURL, getConnectionStatus, getSocket, getAllContacts, resolveContactLid, jidToLid } = require('../services/whatsapp');
+const { getQRDataURL, getConnectionStatus, getSocket, getAllContacts, resolveContactLid, jidToLid, getOrFetchProfilePic } = require('../services/whatsapp');
 const { state, saveState, calculateOnlineRanges } = require('../services/state');
 
 // GET /api/qr — QR code as data URL
@@ -36,6 +36,7 @@ router.get('/contacts', (req, res) => {
       result.push({
         jid: lid, // return LID
         name: contact.name || contact.notify || contact.verifiedName || lid,
+        profilePicUrl: contact.profilePicUrl || null,
       });
     }
   }
@@ -83,6 +84,8 @@ router.post('/contacts/select', async (req, res) => {
       if (lid !== jid) {
          state.phoneMapping[lid] = jid;
       }
+      // Fetch profile pic in background
+      getOrFetchProfilePic(lid).catch(err => console.error('Error fetching profile pic:', err.message));
     } catch (err) {
       console.error(`Failed to subscribe ${jid}:`, err.message);
     }
@@ -99,18 +102,26 @@ router.post('/contacts/select', async (req, res) => {
 // GET /api/contacts/tracked — tracked contacts with real-time status (replaces Go's /api/status-updates)
 router.get('/contacts/tracked', (req, res) => {
   const updates = [];
+  const contacts = getAllContacts();
   for (const [jid, logs] of Object.entries(state.userStatusLog)) {
     const onlineRanges = calculateOnlineRanges(logs);
     let isOnline = false;
     if (logs.length > 0) {
       isOnline = logs[logs.length - 1].status === 'Online';
     }
+    
+    // Get profilePicUrl from contacts cache
+    const phoneJid = state.phoneMapping[jid] || jid;
+    const contactInfo = contacts[jid] || contacts[phoneJid] || {};
+    const profilePicUrl = contactInfo.profilePicUrl || null;
+
     updates.push({
       jid,
       username: state.userNames[jid] || '',
       onlineRanges,
       isOnline,
       logs,
+      profilePicUrl,
     });
   }
   res.json(updates);
@@ -230,6 +241,9 @@ router.post('/add-contact', async (req, res) => {
     state.phoneMapping[lid] = jid;
     saveState();
     console.log(`📌 Kontak ditambahkan: LID ${lid} (${state.userNames[lid]})`);
+    
+    // Fetch profile pic in background
+    getOrFetchProfilePic(lid).catch(err => console.error('Error fetching profile pic:', err.message));
   
     res.json({
       status: 'ok',

@@ -69,6 +69,39 @@ async function resolveContactLid(...jids) {
 // In-memory store for getMessage (required for SenderKey decryption of status messages)
 const messageStore = new Map();
 
+async function getOrFetchProfilePic(lid) {
+  const phoneJid = state.phoneMapping[lid] || lidToJid[lid] || lid;
+  const name = state.userNames[lid] || phoneJid;
+  
+  // check if we already fetched it recently
+  const contact = allContacts[lid] || allContacts[phoneJid] || {};
+  if (contact.profilePicUrl !== undefined) {
+     // Check if we need to refresh (e.g. > 24 hours)
+     if (contact.profilePicFetchedAt && (Date.now() - contact.profilePicFetchedAt < 24 * 60 * 60 * 1000)) {
+         return contact.profilePicUrl;
+     }
+  }
+
+  // fetch from WA
+  let profilePicUrl = null;
+  if (sock) {
+     try {
+         profilePicUrl = await sock.profilePictureUrl(phoneJid, 'image');
+         console.log(`🖼️ Foto profil diambil untuk ${name}: berhasil`);
+     } catch(err) {
+         console.log(`🖼️ Foto profil diambil untuk ${name}: tidak tersedia/private`);
+     }
+  }
+
+  // update allContacts and save
+  if (!allContacts[lid]) allContacts[lid] = { id: lid };
+  allContacts[lid].profilePicUrl = profilePicUrl;
+  allContacts[lid].profilePicFetchedAt = Date.now();
+  saveContactsCache();
+  
+  return profilePicUrl;
+}
+
 async function setupWhatsApp(wss) {
   loadState();
   loadContactsCache();
@@ -175,6 +208,8 @@ async function setupWhatsApp(wss) {
             await sock.presenceSubscribe(id);
             console.log(`Subscribed directly to LID: ${id}`);
           }
+          // Fetch profile pic in background
+          getOrFetchProfilePic(id).catch(err => console.error('Error fetching profile pic:', err.message));
         } catch (err) {
           console.error(`Failed to re-subscribe ${phoneJid}:`, err.message);
         }
@@ -277,6 +312,11 @@ async function setupWhatsApp(wss) {
       // Broadcast via WebSocket for real-time update
       const logs = state.userStatusLog[normalizedJid] || [];
       const onlineRanges = calculateOnlineRanges(logs);
+      
+      const phoneJid = state.phoneMapping[normalizedJid] || normalizedJid;
+      const contactInfo = allContacts[normalizedJid] || allContacts[phoneJid] || {};
+      const profilePicUrl = contactInfo.profilePicUrl || null;
+
       broadcastUpdate({
         type: 'presence',
         jid: normalizedJid,
@@ -285,6 +325,7 @@ async function setupWhatsApp(wss) {
         isOnline,
         onlineRanges,
         logs,
+        profilePicUrl,
       });
 
       saveState();
@@ -445,4 +486,5 @@ module.exports = {
   getAllContacts,
   resolveContactLid,
   jidToLid,
+  getOrFetchProfilePic,
 };

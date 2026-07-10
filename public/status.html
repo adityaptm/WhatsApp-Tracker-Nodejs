@@ -618,7 +618,7 @@
     return labels;
   }
 
-  function updateChart(jid, onlineRanges, isOnline) {
+  function updateChart(jid, onlineRanges, isOnline, profilePicUrl) {
     if (!charts[jid]) return;
     const data = new Array(1440).fill(0);
     const currentDay = moment().startOf('day');
@@ -675,10 +675,15 @@
       const displayName = titleEl ? titleEl.textContent.trim() : displayId;
       const initial = displayName.charAt(0).toUpperCase();
 
+      let avatarHtml = `<div class="profile-avatar">${initial}</div>`;
+      if (profilePicUrl) {
+        avatarHtml = `<img class="profile-avatar" src="${profilePicUrl}" alt="${displayName}" loading="lazy" onerror="this.outerHTML='<div class=\\'profile-avatar\\'>${initial}</div>'" style="object-fit: cover; border: 2px solid ${isOnline ? 'var(--primary)' : 'rgba(16, 185, 129, 0.3)'}; padding: 0;">`;
+      }
+
       summaryElement.innerHTML = `
         <div class="profile-header" style="border-bottom: none; padding-bottom: 12px;">
           <div class="profile-info">
-            <div class="profile-avatar">${initial}</div>
+            ${avatarHtml}
             <div class="profile-details">
               <span class="profile-name">${displayName}</span>
               <span class="profile-phone">${displayId}</span>
@@ -953,7 +958,7 @@
             if (!charts[update.jid]) {
               createChart(update.jid);
             }
-            updateChart(update.jid, update.onlineRanges, update.isOnline);
+            updateChart(update.jid, update.onlineRanges, update.isOnline, update.profilePicUrl);
             updateActivityLog(update.jid, update.logs);
           }
         });
@@ -999,7 +1004,7 @@
         if (!charts[data.jid]) {
           createChart(data.jid);
         }
-        updateChart(data.jid, data.onlineRanges, data.isOnline);
+        updateChart(data.jid, data.onlineRanges, data.isOnline, data.profilePicUrl);
         updateActivityLog(data.jid, data.logs);
       } else if (data.type === 'connection') {
         console.log('WhatsApp connection status:', data.status);

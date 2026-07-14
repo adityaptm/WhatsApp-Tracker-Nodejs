@@ -299,6 +299,7 @@
             <ul class="nav-links">
                 <li><a href="/select">Select Contacts</a></li>
                 <li><a href="/status">View Status</a></li>
+                <li><a href="#" onclick="logoutWhatsApp()" style="color: #ef4444;">Logout</a></li>
             </ul>
         </nav>
     </div>
@@ -329,6 +330,20 @@
 <script>
     // Check connection status and load contacts dynamically
     let checkInterval;
+
+    function logoutWhatsApp() {
+      if (confirm("Apakah Anda yakin ingin logout dari WhatsApp? Anda harus scan QR code ulang.")) {
+        fetch('/api/logout', { method: 'POST' })
+          .then(res => res.json())
+          .then(data => {
+            if (data.status === 'ok') {
+              alert('Logout berhasil. Silakan scan QR code baru.');
+              window.location.reload();
+            }
+          })
+          .catch(err => console.error(err));
+      }
+    }
 
     function checkStatus() {
       fetch('/api/qr')

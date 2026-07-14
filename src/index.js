@@ -1,3 +1,7 @@
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception (tidak fatal, aplikasi tetap jalan):', err.message);
+});
+
 require('dotenv').config();
 
 const express = require('express');

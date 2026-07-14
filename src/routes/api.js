@@ -4,7 +4,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { getQRDataURL, getConnectionStatus, getSocket, getAllContacts, resolveContactLid, jidToLid, getOrFetchProfilePic } = require('../services/whatsapp');
+const { getQRDataURL, getConnectionStatus, getSocket, getAllContacts, resolveContactLid, jidToLid, getOrFetchProfilePic, logoutWhatsApp } = require('../services/whatsapp');
 const { state, saveState, calculateOnlineRanges } = require('../services/state');
 
 // GET /api/qr — QR code as data URL
@@ -21,6 +21,16 @@ router.get('/qr', (req, res) => {
 // GET /api/status — WhatsApp connection status
 router.get('/status', (req, res) => {
   res.json({ status: getConnectionStatus() });
+});
+
+// POST /api/logout — Logout from WhatsApp session
+router.post('/logout', async (req, res) => {
+  try {
+    await logoutWhatsApp();
+    res.json({ status: 'ok' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GET /api/contacts — all available contacts from WhatsApp store

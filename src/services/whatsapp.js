@@ -20,6 +20,7 @@ let sock = null;
 let qrDataURL = null;
 let connectionStatus = 'disconnected'; // 'disconnected' | 'waiting_qr' | 'connected'
 let allContacts = {}; // cached contacts from WhatsApp store
+let isLoggingOut = false;
 
 function loadContactsCache() {
   try {
@@ -150,10 +151,14 @@ async function setupWhatsApp(wss) {
         setTimeout(() => setupWhatsApp(wss), 3000);
       } else {
         console.log('🚪 Logged out. Session invalid. Deleting auth folder and restarting...');
+        isLoggingOut = true;
         if (fs.existsSync(AUTH_DIR)) {
           fs.rmSync(AUTH_DIR, { recursive: true, force: true });
         }
-        setTimeout(() => setupWhatsApp(wss), 3000);
+        setTimeout(() => {
+          isLoggingOut = false; // reset untuk sesi berikutnya
+          setupWhatsApp(wss);
+        }, 3000);
       }
     }
 
@@ -220,7 +225,13 @@ async function setupWhatsApp(wss) {
   });
 
   // Save credentials on update
-  sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('creds.update', async (creds) => {
+    if (isLoggingOut) {
+      console.log('⏭️ Skip saveCreds — sedang proses logout');
+      return;
+    }
+    await saveCreds(creds);
+  });
 
 
 
@@ -478,6 +489,27 @@ async function setupWhatsApp(wss) {
 }
 
 
+async function logoutWhatsApp() {
+  isLoggingOut = true;
+  if (sock) {
+    try {
+      await sock.logout();
+    } catch (err) {
+      console.error('Error logging out:', err.message);
+    }
+  }
+
+  if (fs.existsSync(AUTH_DIR)) {
+    fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+  }
+
+  setTimeout(() => {
+    isLoggingOut = false;
+  }, 3000);
+  
+  return true;
+}
+
 module.exports = {
   setupWhatsApp,
   getSocket,
@@ -487,4 +519,5 @@ module.exports = {
   resolveContactLid,
   jidToLid,
   getOrFetchProfilePic,
+  logoutWhatsApp,
 };

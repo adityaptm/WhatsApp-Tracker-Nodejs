@@ -21,6 +21,7 @@ let qrDataURL = null;
 let connectionStatus = 'disconnected'; // 'disconnected' | 'waiting_qr' | 'connected'
 let allContacts = {}; // cached contacts from WhatsApp store
 let isLoggingOut = false;
+let globalWss = null;
 
 function loadContactsCache() {
   try {
@@ -104,6 +105,7 @@ async function getOrFetchProfilePic(lid) {
 }
 
 async function setupWhatsApp(wss) {
+  if (wss) globalWss = wss;
   loadState();
   loadContactsCache();
 
@@ -145,6 +147,11 @@ async function setupWhatsApp(wss) {
       const reason = lastDisconnect?.error?.output?.statusCode;
       connectionStatus = 'disconnected';
       qrDataURL = null;
+
+      if (isLoggingOut) {
+        console.log('⏭️ Skip auto-restart handler — logout manual sedang berjalan, akan di-handle oleh logoutWhatsApp()');
+        return;
+      }
 
       if (reason !== DisconnectReason.loggedOut) {
         console.log(`🔄 Reconnecting... (Reason: ${reason})`);
@@ -491,23 +498,38 @@ async function setupWhatsApp(wss) {
 
 async function logoutWhatsApp() {
   isLoggingOut = true;
-  if (sock) {
-    try {
+  let success = true;
+  let errorMsg = null;
+
+  try {
+    if (sock) {
+      console.log('🔄 Memulai proses logout dari server WhatsApp...');
       await sock.logout();
-    } catch (err) {
-      console.error('Error logging out:', err.message);
+      await new Promise(r => setTimeout(r, 1000));
+      console.log('✅ Berhasil logout dari server WhatsApp, device akan hilang dari Perangkat Tertaut di HP');
     }
+  } catch (err) {
+    success = false;
+    errorMsg = err.message;
+    console.error('⚠️ sock.logout() GAGAL:', err.message);
+    console.error('⚠️ Device KEMUNGKINAN TIDAK ter-unlink dari HP karena request logout ke server gagal. Folder lokal tetap akan dihapus untuk reset aplikasi, tapi user perlu unlink manual dari HP jika device masih muncul.');
+  } finally {
+    if (fs.existsSync(AUTH_DIR)) {
+      try {
+        fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+        console.log('🗑️ Folder auth_info lokal berhasil dihapus.');
+      } catch(e) {
+        console.error('⚠️ Gagal menghapus folder auth_info lokal:', e.message);
+      }
+    }
+    setTimeout(() => {
+      isLoggingOut = false;
+      console.log('🔁 setupWhatsApp() dipanggil ulang setelah logout');
+      if (globalWss) setupWhatsApp(globalWss);
+    }, 3000);
   }
 
-  if (fs.existsSync(AUTH_DIR)) {
-    fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-  }
-
-  setTimeout(() => {
-    isLoggingOut = false;
-  }, 3000);
-  
-  return true;
+  return { success, error: errorMsg };
 }
 
 module.exports = {

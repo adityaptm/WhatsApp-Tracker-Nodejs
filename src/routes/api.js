@@ -25,11 +25,15 @@ router.get('/status', (req, res) => {
 
 // POST /api/logout — Logout from WhatsApp session
 router.post('/logout', async (req, res) => {
-  try {
-    await logoutWhatsApp();
-    res.json({ status: 'ok' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  const result = await logoutWhatsApp();
+  if (result.success) {
+    res.json({ status: 'ok', message: 'Logout berhasil, device sudah ter-unlink dari WhatsApp' });
+  } else {
+    res.status(500).json({ 
+      status: 'partial', 
+      message: 'Aplikasi logout secara lokal, tapi gagal unlink dari server WhatsApp. Silakan unlink manual dari HP di menu Perangkat Tertaut.', 
+      error: result.error 
+    });
   }
 });
 

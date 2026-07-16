@@ -384,9 +384,15 @@ async function setupWhatsApp(wss) {
 
       // participant field holds the real sender JID for status@broadcast
       // For self-stories it is absent — skip those
-      const participantJid = msg.key.participant || msg.participant;
-      console.log(`📡 [STORY DEBUG] participant=${participantJid} fromMe=${msg.key.fromMe}`);
-      if (!participantJid) continue;
+      let rawParticipant = msg.key.participant || msg.participant;
+      if (!rawParticipant) continue;
+      
+      // Strip device ID (e.g. 628123:12@s.whatsapp.net -> 628123@s.whatsapp.net)
+      const participantJid = rawParticipant.includes(':') 
+        ? rawParticipant.substring(0, rawParticipant.indexOf(':')) + rawParticipant.substring(rawParticipant.indexOf('@'))
+        : rawParticipant;
+
+      console.log(`📡 [STORY DEBUG] participant=${participantJid} (raw=${rawParticipant}) fromMe=${msg.key.fromMe}`);
 
       // Reverse lookup: participantJid is always @s.whatsapp.net
       // Check if this phone JID maps to a tracked LID via phoneMapping
@@ -414,11 +420,18 @@ async function setupWhatsApp(wss) {
         ? (typeof msg.messageTimestamp === 'object' ? Number(msg.messageTimestamp.low || msg.messageTimestamp) : msg.messageTimestamp)
         : Math.floor(Date.now() / 1000)) * 1000;
 
-      const messageContent = msg.message;
+      let messageContent = msg.message;
       if (!messageContent) {
         console.log('📡 [STORY DEBUG] msg.message is empty — skip');
         continue;
       }
+
+      // Unwrap common wrappers
+      if (messageContent.ephemeralMessage?.message) messageContent = messageContent.ephemeralMessage.message;
+      if (messageContent.viewOnceMessage?.message) messageContent = messageContent.viewOnceMessage.message;
+      if (messageContent.viewOnceMessageV2?.message) messageContent = messageContent.viewOnceMessageV2.message;
+      if (messageContent.viewOnceMessageV2Extension?.message) messageContent = messageContent.viewOnceMessageV2Extension.message;
+      if (messageContent.documentWithCaptionMessage?.message) messageContent = messageContent.documentWithCaptionMessage.message;
 
       const contentKeys = Object.keys(messageContent);
       console.log(`📡 [STORY DEBUG] contentKeys: ${contentKeys.join(', ')}`);

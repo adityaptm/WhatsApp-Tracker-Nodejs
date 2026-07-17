@@ -296,6 +296,18 @@ router.get('/status-updates', (req, res) => {
 // GET /api/statuses — ALL stories from ALL tracked contacts, newest first
 router.get('/statuses', (req, res) => {
   try {
+    // ── DEBUG: show raw state before any filtering ──
+    const keys = Object.keys(state.userStatuses);
+    console.log(`🔍 [DEBUG] GET /statuses — state.userStatuses has ${keys.length} keys: ${keys.join(', ')}`);
+    for (const k of keys) {
+      const arr = state.userStatuses[k];
+      console.log(`🔍 [DEBUG]   key="${k}" → isArray=${Array.isArray(arr)}, length=${Array.isArray(arr) ? arr.length : 'N/A'}`);
+      if (Array.isArray(arr) && arr.length > 0) {
+        arr.forEach((s, i) => console.log(`🔍 [DEBUG]     [${i}] id=${s.id} ts=${s.timestamp} type=${s.type}`));
+      }
+    }
+    // ─────────────────────────────────────────────────
+
     const retentionDays = parseInt(process.env.STORY_RETENTION_DAYS || '30', 10);
     const cutoffTime = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
     const all = [];
@@ -306,6 +318,8 @@ router.get('/statuses', (req, res) => {
       for (const s of stories) {
         if (s.timestamp >= cutoffTime) {
           all.push({ ...s, jid, contactName: name });
+        } else {
+          console.log(`⚠️ [Story API] Filtered out story id=${s.id} from ${jid}: ts=${s.timestamp} < cutoff=${cutoffTime} (retentionDays=${retentionDays})`);
         }
       }
     }
@@ -329,11 +343,19 @@ router.get('/contacts/:jid/statuses', (req, res) => {
     if (!fullJid.includes('@')) fullJid += '@s.whatsapp.net';
 
     const statuses = state.userStatuses[fullJid] || [];
+    console.log(`🔍 [DEBUG] /contacts/${jid}/statuses → found ${statuses.length} stories for key "${fullJid}"`);
+
     const retentionDays = parseInt(process.env.STORY_RETENTION_DAYS || '30', 10);
     const cutoffTime = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
     const validStatuses = statuses.filter(s => s.timestamp >= cutoffTime);
 
     if (validStatuses.length !== statuses.length) {
+      const removed = statuses.length - validStatuses.length;
+      console.log(`🗑️ [Story API] Retention cleanup: removing ${removed} expired stories from "${fullJid}" (cutoff=${cutoffTime})`);
+      // Log each removed story for debugging
+      statuses.filter(s => s.timestamp < cutoffTime).forEach(s => {
+        console.log(`🗑️ [Story API]   removed: id=${s.id} ts=${s.timestamp} type=${s.type}`);
+      });
       state.userStatuses[fullJid] = validStatuses;
       saveState();
     }

@@ -416,9 +416,14 @@ async function setupWhatsApp(wss) {
       console.log(`📡 [STORY DEBUG] ✅ Matched tracked contact: ${normalizedJid}`);
 
       const msgId = msg.key.id;
+      console.log(`📡 [STORY DEBUG] raw messageTimestamp=${msg.messageTimestamp} type=${typeof msg.messageTimestamp}`);
+      if (typeof msg.messageTimestamp === 'object' && msg.messageTimestamp !== null) {
+        console.log(`📡 [STORY DEBUG] messageTimestamp is object, .low=${msg.messageTimestamp.low}, .high=${msg.messageTimestamp.high}, .unsigned=${msg.messageTimestamp.unsigned}`);
+      }
       const timestamp = (msg.messageTimestamp
         ? (typeof msg.messageTimestamp === 'object' ? Number(msg.messageTimestamp.low || msg.messageTimestamp) : msg.messageTimestamp)
         : Math.floor(Date.now() / 1000)) * 1000;
+      console.log(`📡 [STORY DEBUG] computed timestamp=${timestamp} (Date: ${new Date(timestamp).toISOString()})`);
 
       let messageContent = msg.message;
       if (!messageContent) {
@@ -488,6 +493,16 @@ async function setupWhatsApp(wss) {
             saveState();
             const name = state.userNames[normalizedJid] || normalizedJid;
             console.log(`📖 Story baru disimpan dari ${name} (${normalizedJid}): ${type}`);
+            console.log(`📖 [VERIFY] state.userStatuses["${normalizedJid}"] now has ${state.userStatuses[normalizedJid].length} stories`);
+            // Verify the file was actually written with the story data
+            try {
+              const rawFile = fs.readFileSync(path.join(__dirname, '..', '..', 'logs.json'), 'utf8');
+              const parsed = JSON.parse(rawFile);
+              const fileStories = parsed.statuses?.[normalizedJid];
+              console.log(`📖 [VERIFY] logs.json statuses["${normalizedJid}"] = ${Array.isArray(fileStories) ? fileStories.length : 'MISSING'} stories`);
+            } catch (verifyErr) {
+              console.error(`📖 [VERIFY] Failed to verify file:`, verifyErr.message);
+            }
           } else {
             console.log(`📡 [STORY DEBUG] Duplicate story ${msgId} — skip`);
           }

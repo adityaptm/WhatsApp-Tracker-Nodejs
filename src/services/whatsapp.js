@@ -23,6 +23,27 @@ let allContacts = {}; // cached contacts from WhatsApp store
 let isLoggingOut = false;
 let globalWss = null;
 
+/**
+ * Recursively unwrap WhatsApp message wrappers to get the actual content.
+ * WhatsApp can nest messages in ephemeral, viewOnce, documentWithCaption, etc.
+ */
+function unwrapMessage(message) {
+  if (!message) return null;
+  const wrappers = [
+    'ephemeralMessage',
+    'viewOnceMessage',
+    'viewOnceMessageV2',
+    'viewOnceMessageV2Extension',
+    'documentWithCaptionMessage',
+  ];
+  for (const wrapper of wrappers) {
+    if (message[wrapper]?.message) {
+      return unwrapMessage(message[wrapper].message);
+    }
+  }
+  return message;
+}
+
 function loadContactsCache() {
   try {
     if (fs.existsSync(CONTACTS_CACHE_FILE)) {
@@ -431,18 +452,18 @@ async function setupWhatsApp(wss) {
         continue;
       }
 
-      // Unwrap common wrappers
-      if (messageContent.ephemeralMessage?.message) messageContent = messageContent.ephemeralMessage.message;
-      if (messageContent.viewOnceMessage?.message) messageContent = messageContent.viewOnceMessage.message;
-      if (messageContent.viewOnceMessageV2?.message) messageContent = messageContent.viewOnceMessageV2.message;
-      if (messageContent.viewOnceMessageV2Extension?.message) messageContent = messageContent.viewOnceMessageV2Extension.message;
-      if (messageContent.documentWithCaptionMessage?.message) messageContent = messageContent.documentWithCaptionMessage.message;
+      // Recursively unwrap all known wrapper formats
+      messageContent = unwrapMessage(messageContent);
+      if (!messageContent) {
+        console.log('📡 [STORY DEBUG] msg.message is empty after unwrap — skip');
+        continue;
+      }
 
       const contentKeys = Object.keys(messageContent);
-      console.log(`📡 [STORY DEBUG] contentKeys: ${contentKeys.join(', ')}`);
+      console.log(`📡 [STORY DEBUG] contentKeys after unwrap: ${contentKeys.join(', ')}`);
 
-      // Try to find the real content, unwrapping senderKeyDistributionMessage etc.
-      let contentKey = contentKeys.find(k => ['imageMessage', 'videoMessage', 'extendedTextMessage'].includes(k));
+      // Try to find the real content — imageMessage, videoMessage, extendedTextMessage, or plain conversation
+      let contentKey = contentKeys.find(k => ['imageMessage', 'videoMessage', 'extendedTextMessage', 'conversation'].includes(k));
 
       if (!contentKey) {
         console.log(`📡 [STORY DEBUG] No usable content key found in: ${contentKeys.join(', ')}`);
@@ -454,6 +475,7 @@ async function setupWhatsApp(wss) {
         let caption = '';
         let mediaUrl = null;
         let textOptions = null;
+        let buffer = null;
 
         if (contentKey === 'imageMessage' || contentKey === 'videoMessage') {
           type = contentKey === 'imageMessage' ? 'image' : 'video';
@@ -469,7 +491,21 @@ async function setupWhatsApp(wss) {
           const savePath = path.join(saveDir, fileName);
 
           if (!fs.existsSync(savePath)) {
-            const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+            // Retry logic: up to 2 attempts for media download (handles expired links / network timeouts)
+            const MAX_RETRIES = 2;
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+              try {
+                buffer = await downloadMediaMessage(msg, 'buffer', {}, {
+                  logger: pino({ level: 'silent' }),
+                  reuploadRequest: sock.updateMediaMessage, // important: retry if media link expired
+                });
+                break; // success — exit retry loop
+              } catch (dlErr) {
+                console.warn(`⚠️ Download attempt ${attempt}/${MAX_RETRIES} gagal untuk ${type} story: ${dlErr.message}`);
+                if (attempt === MAX_RETRIES) throw dlErr; // re-throw on final attempt
+                await new Promise(r => setTimeout(r, 2000)); // wait 2s before retry
+              }
+            }
             fs.writeFileSync(savePath, buffer);
           }
           mediaUrl = `/storage/statuses/${jidFolder}/${fileName}`;
@@ -483,6 +519,12 @@ async function setupWhatsApp(wss) {
             bgHex = '#' + (textMsg.backgroundArgb >>> 0).toString(16).padStart(8, '0').slice(2);
           }
           textOptions = { backgroundColor: bgHex, font: textMsg.font || 0 };
+
+        } else if (contentKey === 'conversation') {
+          // Plain text story without styling (no background color / font)
+          type = 'text';
+          caption = messageContent.conversation || '';
+          textOptions = null; // null signals plain text without background styling
         }
 
         if (type !== 'unknown') {
@@ -492,7 +534,9 @@ async function setupWhatsApp(wss) {
             state.userStatuses[normalizedJid].push({ id: msgId, timestamp, type, mediaUrl, caption, textOptions });
             saveState();
             const name = state.userNames[normalizedJid] || normalizedJid;
-            console.log(`📖 Story baru disimpan dari ${name} (${normalizedJid}): ${type}`);
+            // Detailed log with file size for media types
+            const sizeInfo = buffer ? ` — ${(buffer.length / 1024).toFixed(1)} KB` : '';
+            console.log(`📖 Story baru disimpan dari ${name} (${normalizedJid}): ${type}${sizeInfo}`);
             console.log(`📖 [VERIFY] state.userStatuses["${normalizedJid}"] now has ${state.userStatuses[normalizedJid].length} stories`);
             // Verify the file was actually written with the story data
             try {
@@ -508,7 +552,12 @@ async function setupWhatsApp(wss) {
           }
         }
       } catch (err) {
-        console.error(`❌ Failed to save story from ${participantJid}:`, err.message);
+        // Specific handling for encryption/decryption failures
+        if (err.message?.includes('Bad MAC') || err.message?.includes('decrypt')) {
+          console.error(`🔐 Story dari ${participantJid} GAGAL didekripsi (sesi enkripsi bermasalah) — minta kontak kirim chat biasa dulu untuk re-sync sesi`);
+        } else {
+          console.error(`❌ Failed to save story from ${participantJid}:`, err.message);
+        }
       }
     }
   });
